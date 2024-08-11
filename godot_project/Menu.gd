@@ -6,9 +6,10 @@ const new_tab_name = "new_tab.txt"
 var sort_by_name = false
 
 var player = NoteScale.new()
-var file_list_scrollbar = VScrollBar.new()
+var current_scrollbar = VScrollBar.new()
+
 func _ready():
-	file_list_scrollbar = $TabContainer/Collection/TABCollection.get_v_scroll()
+	#file_list_scrollbar = $TabContainer/Collection/TABCollection.get_v_scroll()
 	update_collection()
 	$HTTPRequest.connect("request_completed", self, "_on_request_completed")
 	
@@ -18,8 +19,6 @@ func _ready():
 	add_child(player)
 	#player.play_sounds(NoteScale.get_next_tabline_sounds(NoteScale.example_tab_str), 0.05)
 
-func _process(delta):
-	$TabContainer/Info/ClipboardText.text = OS.clipboard
 
 var currentContent = ""
 func _on_LoadTab_pressed():
@@ -145,8 +144,16 @@ func _on_CopyCollectionButton_pressed():
 		dict[fn] = text
 		i += 1
 	var bytes = var2bytes(dict)
+	#var content = Marshalls.variant_to_base64([bytes.size(), bytes.compress(File.COMPRESSION_FASTLZ)])
+	#print("FASTLZ:"+str(len(content)))
+	#content = Marshalls.variant_to_base64([bytes.size(), bytes.compress(File.COMPRESSION_DEFLATE)])
+	#print("DEFLATE:"+str(len(content)))
+	#content = Marshalls.variant_to_base64([bytes.size(), bytes.compress(File.COMPRESSION_ZSTD)])
+	#print("ZSTD:"+str(len(content)))
 	var content = Marshalls.variant_to_base64([bytes.size(), bytes.compress(File.COMPRESSION_GZIP)])
+	#print("GZIP:"+str(len(content)))
 	OS.clipboard = content
+	
 
 func _on_PasteCollectionButton_pressed():
 	var parse_r = Marshalls.base64_to_variant(OS.clipboard)
@@ -221,15 +228,41 @@ func _on_SortBy_toggled(button_pressed):
 
 var swipe_start_y = 0
 var swipe_start_value = 0
+var swipe_start_time = 0
 var swiping = false
+var passive_scrolling = false
+var passive_scrolling_vel = 0.0
+const min_passive_vel = 100
+const passive_vel_mul = 0.97
 func _on_gui_input(event):
 	if event is InputEventMouseButton:
 		if event.button_index == BUTTON_LEFT:
 			if event.pressed and !swiping:
 				swiping = true
-				swipe_start_value = file_list_scrollbar.value
+				swipe_start_value = current_scrollbar.value
 				swipe_start_y = event.global_position.y
+				swipe_start_time = float(Time.get_ticks_msec())/1000.0
 			elif !event.pressed and swiping:
 				swiping = false
+				passive_scrolling_vel = (event.global_position.y-swipe_start_y)/(float(Time.get_ticks_msec())/1000.0 - swipe_start_time)
+				passive_scrolling = true
 	elif swiping and event is InputEventMouseMotion:
-		file_list_scrollbar.value = swipe_start_value-(event.global_position.y-swipe_start_y)
+		current_scrollbar.value = swipe_start_value-(event.global_position.y-swipe_start_y)
+		#if !passive_scrolling:
+		#	passive_scrolling_vel = float(event.speed.y)
+
+func _process(delta):
+	$TabContainer/Info/ClipboardText.text = OS.clipboard
+	if passive_scrolling:
+		if abs(passive_scrolling_vel) < min_passive_vel:
+			passive_scrolling = false
+		print("passive scrolling with "+str(passive_scrolling_vel))
+		passive_scrolling_vel *= passive_vel_mul
+		current_scrollbar.value -= passive_scrolling_vel*delta
+
+
+func _on_TabContainer_tab_changed(tab):
+	if tab == 2:
+		current_scrollbar = $TabContainer/Chords/RichTextLabel.get_v_scroll()
+	else:
+		current_scrollbar = $TabContainer/Collection/TABCollection.get_v_scroll()
